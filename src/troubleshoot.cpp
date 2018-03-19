@@ -28,7 +28,7 @@
 #include "SPIFlash.h"
 
 //Subfunctions for troubleshooting function
-void SPIFlash::_printErrorCode(void) {
+void SPIFlash::_printErrorCode() {
   Serial.print("Error code: 0x");
   if (errorcode < 0x10) {
     Serial.print("0");
@@ -36,7 +36,7 @@ void SPIFlash::_printErrorCode(void) {
   Serial.println(errorcode, HEX);
 }
 
-void SPIFlash::_printSupportLink(void) {
+void SPIFlash::_printSupportLink() {
   Serial.print("If this does not help resolve/clarify this issue, ");
   Serial.println("please raise an issue at http://www.github.com/Marzogh/SPIFlash/issues with the details of what your were doing when this error occurred");
 }
@@ -55,7 +55,7 @@ void SPIFlash::_troubleshoot(uint8_t _code, bool printoverride) {
   #else
   //Serial.println();
     switch (_code) {
-      case SUCCESS:
+      case VOYNICH_STATUS_SUCCESS:
       Serial.println("Function executed successfully");
       break;
 
@@ -63,11 +63,11 @@ void SPIFlash::_troubleshoot(uint8_t _code, bool printoverride) {
       Serial.println("Check your wiring. Flash chip is non-responsive.");
       break;
 
-      case CALLBEGIN:
+      case VOYNICH_STATUS_CALLBEGIN:
       Serial.println("*constructor_of_choice*.begin() was not called in void setup()");
       break;
 
-      case UNKNOWNCHIP:
+      case VOYNICH_STATUS_UNKNOWNCHIP:
       Serial.println("Unable to identify chip. Are you sure this chip is supported?");
       Serial.println("Chip details:");
       Serial.print("manufacturer ID: 0x"); Serial.println(_chip.manufacturerID, HEX);
@@ -75,16 +75,16 @@ void SPIFlash::_troubleshoot(uint8_t _code, bool printoverride) {
       Serial.print("device ID: 0x"); Serial.println(_chip.capacityID, HEX);
       break;
 
-      case UNKNOWNCAP:
+      case VOYNICH_STATUS_UNKNOWNCAPACITY:
       Serial.println("Unable to identify capacity. Is this chip officially supported? If not, please define a `CAPACITY` constant and include it in flash.begin(CAPACITY).");
       break;
 
-      case CHIPBUSY:
+      case VOYNICH_STATUS_CHIPBUSY:
       Serial.println("Chip is busy.");
       Serial.println("Make sure all pins have been connected properly");
       break;
 
-      case OUTOFBOUNDS:
+      case VOYNICH_STATUS_OUTOFBOUNDS:
       Serial.println("Page overflow has been disabled and the address called exceeds the memory");
       break;
 
@@ -134,7 +134,7 @@ void SPIFlash::_troubleshoot(uint8_t _code, bool printoverride) {
       Serial.println("Unknown error");
       break;
     }
-    if (_code != SUCCESS) {
+    if (_code != VOYNICH_STATUS_SUCCESS) {
       _printSupportLink();
     }
   #endif

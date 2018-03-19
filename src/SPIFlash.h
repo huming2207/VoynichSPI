@@ -63,81 +63,17 @@
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
 #define PRINTNAMECHANGEALERT
 
-  #include <Arduino.h>
-  #include "defines.h"
-  #include <SPI.h>
+#include <Arduino.h>
+#include "defines.h"
+#include <SPI.h>
 
-#if defined (ARDUINO_ARCH_SAM)
-  #include <malloc.h>
-  #include <stdlib.h>
-  #include <stdio.h>
-#endif
 
-#if defined (BOARD_RTL8195A)
-  #ifdef __cplusplus
-    extern "C" {
-  #endif
+#define _delay_us(us) delayMicroseconds(us)
 
-  #include "gpio_api.h"
-  #include "PinNames.h"
-
-  #ifdef __cplusplus
-    }
-  #endif
-#endif
-
-#ifndef ARCH_STM32
-  #if defined(ARDUINO_ARCH_STM32) || defined(__STM32F1__) || defined(STM32F1) || defined(STM32F3) || defined(STM32F4) || defined(STM32F0xx)
-    #define ARCH_STM32
-  #endif
-#endif
-#if defined (ARDUINO_ARCH_SAM) || defined (ARDUINO_ARCH_SAMD) || defined (ARDUINO_ARCH_ESP8266) || defined (SIMBLEE) || defined (ARDUINO_ARCH_ESP32) || defined (BOARD_RTL8195A) || defined(ARCH_STM32)
-// RTL8195A included - @boseji <salearj@hotmail.com> 02.03.17
-  #define _delay_us(us) delayMicroseconds(us)
-#else
-  #include <util/delay.h>
-#endif
-
-// Defines and variables specific to SAM architecture
-#if defined (ARDUINO_ARCH_SAM)
-  #define CHIP_SELECT   digitalWrite(csPin, LOW);
-  #define CHIP_DESELECT digitalWrite(csPin, HIGH);
-  #define xfer   _dueSPITransfer
-  #define BEGIN_SPI _dueSPIBegin();
-  extern char _end;
-  extern "C" char *sbrk(int i);
-  //char *ramstart=(char *)0x20070000;
-  //char *ramend=(char *)0x20088000;
-
-// Specific access configuration for Chip select pin. Includes specific to RTL8195A to access GPIO HAL - @boseji <salearj@hotmail.com> 02.03.17
-#elif defined (BOARD_RTL8195A)
-  #ifdef __cplusplus
-    extern "C" {
-  #endif
-
-  #include "gpio_api.h"
-  #include "PinNames.h"
-
-  #ifdef __cplusplus
-    }
-  #endif
-  #define CHIP_SELECT   gpio_write(&csPin, 0);
-  #define CHIP_DESELECT gpio_write(&csPin, 1);
-  #define xfer(n)   SPI.transfer(n)
-  #define BEGIN_SPI SPI.begin();
-
-// Defines and variables specific to ARM architecture
-#elif defined (ARDUINO_ARCH_SAMD) || defined(ARCH_STM32)
-  #define CHIP_SELECT   digitalWrite(csPin, LOW);
-  #define CHIP_DESELECT digitalWrite(csPin, HIGH);
-  #define xfer(n)   _spi->transfer(n)
-  #define BEGIN_SPI _spi->begin();
-#else
-  #define CHIP_SELECT   digitalWrite(csPin, LOW);
-  #define CHIP_DESELECT digitalWrite(csPin, HIGH);
-  #define xfer(n)   SPI.transfer(n)
-  #define BEGIN_SPI SPI.begin();
-#endif
+#define CHIP_SELECT   digitalWrite(csPin, LOW);
+#define CHIP_DESELECT digitalWrite(csPin, HIGH);
+#define xfer(n)   SPI.transfer(n)
+#define BEGIN_SPI SPI.begin();
 
 #define LIBVER 3
 #define LIBSUBVER 1
@@ -147,26 +83,20 @@ class SPIFlash {
 public:
   //------------------------------------ Constructor ------------------------------------//
   //New Constructor to Accept the PinNames as a Chip select Parameter - @boseji <salearj@hotmail.com> 02.03.17
-  #if defined (ARDUINO_ARCH_SAMD) || defined(ARCH_STM32)
-  SPIFlash(uint8_t cs = CS, SPIClass *spiinterface=&SPI);
-  #elif defined (BOARD_RTL8195A)
-  SPIFlash(PinName cs = CS);
-  #else
-  SPIFlash(uint8_t cs = CS);
-  #endif
+  SPIFlash(uint8_t cs);
   //----------------------------- Initial / Chip Functions ------------------------------//
   bool     begin(uint32_t flashChipSize = 0);
   void     setClock(uint32_t clockSpeed);
   bool     libver(uint8_t *b1, uint8_t *b2, uint8_t *b3);
   uint8_t  error(bool verbosity = false);
-  uint16_t getManID(void);
-  uint32_t getJEDECID(void);
-  uint64_t getUniqueID(void);
+  uint16_t getManID();
+  uint32_t getJEDECID();
+  uint64_t getUniqueID();
   uint32_t getAddress(uint16_t size);
   uint16_t sizeofStr(String &inputStr);
-  uint32_t getCapacity(void);
-  uint32_t getMaxPage(void);
-  float    functionRunTime(void);
+  uint32_t getCapacity();
+  uint32_t getMaxPage();
+  float    functionRunTime();
   //-------------------------------- Write / Read Bytes ---------------------------------//
   bool     writeByte(uint32_t _addr, uint8_t data, bool errorCheck = true);
   uint8_t  readByte(uint32_t _addr, bool fastRead = false);
@@ -206,71 +136,44 @@ public:
   bool     eraseSector(uint32_t _addr);
   bool     eraseBlock32K(uint32_t _addr);
   bool     eraseBlock64K(uint32_t _addr);
-  bool     eraseChip(void);
+  bool     eraseChip();
   //-------------------------------- Power functions ------------------------------------//
-  bool     suspendProg(void);
-  bool     resumeProg(void);
-  bool     powerDown(void);
-  bool     powerUp(void);
-  //-------------------------- Public Arduino Due Functions -----------------------------//
-//#if defined (ARDUINO_ARCH_SAM)
-  //uint32_t freeRAM(void);
-//#endif
+  bool     suspendProg();
+  bool     resumeProg();
+  bool     powerDown();
+  bool     powerUp();
   //------------------------------- Public variables ------------------------------------//
 
 private:
-#if defined (ARDUINO_ARCH_SAM)
-  //-------------------------- Private Arduino Due Functions ----------------------------//
-  void     _dmac_disable(void);
-  void     _dmac_enable(void);
-  void     _dmac_channel_disable(uint32_t ul_num);
-  void     _dmac_channel_enable(uint32_t ul_num);
-  bool     _dmac_channel_transfer_done(uint32_t ul_num);
-  void     _dueSPIDmaRX(uint8_t* dst, uint16_t count);
-  void     _dueSPIDmaRX(char* dst, uint16_t count);
-  void     _dueSPIDmaTX(const uint8_t* src, uint16_t count);
-  void     _dueSPIDmaCharTX(const char* src, uint16_t count);
-  void     _dueSPIBegin(void);
-  void     _dueSPIInit(uint8_t dueSckDivisor);
-  uint8_t  _dueSPITransfer(uint8_t b);
-  uint8_t  _dueSPIRecByte(void);
-  uint8_t  _dueSPIRecByte(uint8_t* buf, size_t len);
-  int8_t   _dueSPIRecChar(void);
-  int8_t   _dueSPIRecChar(char* buf, size_t len);
-  void     _dueSPISendByte(uint8_t b);
-  void     _dueSPISendByte(const uint8_t* buf, size_t len);
-  void     _dueSPISendChar(char b);
-  void     _dueSPISendChar(const char* buf, size_t len);
-#endif
   //------------------------------- Private functions -----------------------------------//
   void     _troubleshoot(uint8_t _code, bool printoverride = false);
-  void     _printErrorCode(void);
-  void     _printSupportLink(void);
-  void     _endSPI(void);
-  bool     _disableGlobalBlockProtect(void);
-  bool     _isChipPoweredDown(void);
+  void     _printErrorCode();
+  void     _printSupportLink();
+  void     _endSPI();
+  bool     _disableGlobalBlockProtect();
+  bool     _isChipPoweredDown();
   bool     _prep(uint8_t opcode, uint32_t _addr, uint32_t size = 0);
-  bool     _startSPIBus(void);
+  bool     _startSPIBus();
   bool     _beginSPI(uint8_t opcode);
-  bool     _noSuspend(void);
+  bool     _noSuspend();
   bool     _notBusy(uint32_t timeout = BUSY_TIMEOUT);
   bool     _notPrevWritten(uint32_t _addr, uint32_t size = 1);
   bool     _writeEnable(bool _troubleshootEnable = true);
-  bool     _writeDisable(void);
-  bool     _getJedecId(void);
+  bool     _writeDisable();
+  bool     _getJedecId();
   bool     _getManId(uint8_t *b1, uint8_t *b2);
-  bool     _getSFDP(void);
-  bool     _chipID(void);
-  bool     _transferAddress(void);
+  bool     _getSFDP();
+  bool     _chipID();
+  bool     _transferAddress();
   bool     _addressCheck(uint32_t _addr, uint32_t size = 1);
-  bool     _enable4ByteAddressing(void);
-  bool     _disable4ByteAddressing(void);
+  bool     _enable4ByteAddressing();
+  bool     _disable4ByteAddressing();
   uint8_t  _nextByte(char IOType, uint8_t data = NULLBYTE);
   uint16_t _nextInt(uint16_t = NULLINT);
   void     _nextBuf(uint8_t opcode, uint8_t *data_buffer, uint32_t size);
-  uint8_t  _readStat1(void);
-  uint8_t  _readStat2(void);
-  uint8_t  _readStat3(void);
+  uint8_t  _readStat1();
+  uint8_t  _readStat2();
+  uint8_t  _readStat3();
   template <class T> bool _write(uint32_t _addr, const T& value, uint32_t _sz, bool errorCheck, uint8_t _dataType);
   template <class T> bool _read(uint32_t _addr, T& value, uint32_t _sz, bool fastRead = false, uint8_t _dataType = 0x00);
   //template <class T> bool _writeErrorCheck(uint32_t _addr, const T& value);
@@ -343,11 +246,11 @@ template <class T> bool SPIFlash::_writeErrorCheck(uint32_t _addr, const T& valu
   if (_isChipPoweredDown() || !_addressCheck(_addr, _sz) || !_notBusy()) {
     return false;
   }
-  const uint8_t* p = (const uint8_t*)(const void*)&value;
+  auto* p = (const uint8_t*)(const void*)&value;
   if (_dataType == _STRUCT_) {
     uint8_t _inByte[_sz];
-    _beginSPI(READDATA);
-    _nextBuf(READDATA, &(*_inByte), _sz);
+    _beginSPI(JEDEC_READ_DATA);
+    _nextBuf(JEDEC_READ_DATA, &(*_inByte), _sz);
     _endSPI();
     for (uint16_t i = 0; i < _sz; i++) {
       if (*p++ != _inByte[i]) {
@@ -361,7 +264,7 @@ template <class T> bool SPIFlash::_writeErrorCheck(uint32_t _addr, const T& valu
   }
   else {
     CHIP_SELECT
-    _nextByte(WRITE, READDATA);
+    _nextByte(WRITE, JEDEC_READ_DATA);
     _transferAddress();
     for (uint16_t i = 0; i < _sz; i++) {
       if (*p++ != _nextByte(READ)) {
@@ -391,20 +294,16 @@ template <class T> bool SPIFlash::_write(uint32_t _addr, const T& value, uint32_
 #endif
 
   uint32_t _addrIn = _addr;
-  if (!_prep(PAGEPROG, _addrIn, _sz)) {
+  if (!_prep(JEDEC_PROG_BYTE, _addrIn, _sz)) {
     return false;
   }
   _addrIn = _currentAddress;
-  //Serial.print("_addrIn: ");
-  //Serial.println(_addrIn, HEX);
   const uint8_t* p = ((const uint8_t*)(const void*)&value);
-//Serial.print(F("Address being written to: "));
-//Serial.println(_addr);
   if (!SPIBusState) {
     _startSPIBus();
   }
   CHIP_SELECT
-  _nextByte(WRITE, PAGEPROG);
+  _nextByte(WRITE, JEDEC_PROG_BYTE);
   _transferAddress();
     //If data is only one byte (8 bits) long
   if (_sz == 0x01) {
@@ -456,8 +355,6 @@ template <class T> bool SPIFlash::_write(uint32_t _addr, const T& value, uint32_
     return true;
   }
   else {
-    //Serial.print(F("Address sent to error check: "));
-    //Serial.println(_addr);
     _retVal =  _writeErrorCheck(_addr, value, _sz, _dataType);
   }
 #ifdef RUNDIAGNOSTIC
@@ -473,7 +370,7 @@ template <class T> bool SPIFlash::_write(uint32_t _addr, const T& value, uint32_
 //  3. _sz --> Size of the variable in bytes (1 byte = 8 bits)
 //  4. fastRead --> defaults to false - executes _beginFastRead() if set to true
 template <class T> bool SPIFlash::_read(uint32_t _addr, T& value, uint32_t _sz, bool fastRead, uint8_t _dataType) {
-  if (!_prep(READDATA, _addr, _sz)) {
+  if (!_prep(JEDEC_READ_DATA, _addr, _sz)) {
     return false;
   }
   else {
@@ -481,8 +378,8 @@ template <class T> bool SPIFlash::_read(uint32_t _addr, T& value, uint32_t _sz, 
 
     if (_dataType == _STRING_) {
       char _inChar[_sz];
-      _beginSPI(READDATA);
-      _nextBuf(READDATA, (uint8_t*) &(*_inChar), _sz);
+      _beginSPI(JEDEC_READ_DATA);
+      _nextBuf(JEDEC_READ_DATA, (uint8_t*) &(*_inChar), _sz);
       _endSPI();
       for (uint16_t i = 0; i < _sz; i++) {
         *p++ = _inChar[i];
@@ -491,10 +388,10 @@ template <class T> bool SPIFlash::_read(uint32_t _addr, T& value, uint32_t _sz, 
     else {
       CHIP_SELECT
       if (fastRead) {
-        _nextByte(WRITE, FASTREAD);
+        _nextByte(WRITE, JEDEC_READ_FAST);
       }
       else {
-        _nextByte(WRITE, READDATA);
+        _nextByte(WRITE, JEDEC_READ_DATA);
       }
       _transferAddress();
       for (uint16_t i = 0; i < _sz; i++) {
@@ -504,7 +401,6 @@ template <class T> bool SPIFlash::_read(uint32_t _addr, T& value, uint32_t _sz, 
     }
     return true;
   }
-  return true;
 }
 
 #endif // _SPIFLASH_H_

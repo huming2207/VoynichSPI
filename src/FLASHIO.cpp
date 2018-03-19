@@ -32,28 +32,21 @@
 //Sets the global address variable
 bool SPIFlash::_addressCheck(uint32_t _addr, uint32_t size) {
   uint32_t _submittedAddress = _addr;
-  if (errorcode == UNKNOWNCAP || errorcode == NORESPONSE) {
+  if (errorcode == VOYNICH_STATUS_UNKNOWNCAPACITY || errorcode == NORESPONSE) {
     return false;
   }
 	if (!_chip.capacity) {
-    _troubleshoot(CALLBEGIN);
+    _troubleshoot(VOYNICH_STATUS_CALLBEGIN);
     return false;
 	}
 
-  //Serial.print("_chip.capacity: ");
-  //Serial.println(_chip.capacity, HEX);
-
   if (_submittedAddress + size >= _chip.capacity) {
-    //Serial.print("_submittedAddress + size: ");
-    //Serial.println(_submittedAddress + size, HEX);
   #ifdef DISABLEOVERFLOW
-    _troubleshoot(OUTOFBOUNDS);
+    _troubleshoot(VOYNICH_STATUS_OUTOFBOUNDS);
     return false;					// At end of memory - (!pageOverflow)
   #else
     _addressOverflow = ((_submittedAddress + size) - _chip.capacity);
     _currentAddress = _addr;
-    //Serial.print("_addressOverflow: ");
-    //Serial.println(_addressOverflow, HEX);
     return true;					// At end of memory - (pageOverflow)
   #endif
   }
@@ -62,14 +55,12 @@ bool SPIFlash::_addressCheck(uint32_t _addr, uint32_t size) {
     _currentAddress = _addr;
     return true;				// Not at end of memory if (address < _chip.capacity)
   }
-  //Serial.print("_currentAddress: ");
-  //Serial.println(_currentAddress, HEX);
 }
 
 // Checks to see if the block of memory has been previously written to
 bool SPIFlash::_notPrevWritten(uint32_t _addr, uint32_t size) {
   uint8_t _dat;
-  _beginSPI(READDATA);
+  _beginSPI(JEDEC_READ_DATA);
   for (uint32_t i = 0; i < size; i++) {
     if (_nextByte(READ) != 0xFF) {
       CHIP_DESELECT;
@@ -91,9 +82,7 @@ bool SPIFlash::_prep(uint8_t opcode, uint32_t _addr, uint32_t size) {
     }
   }
   switch (opcode) {
-    case PAGEPROG:
-    //Serial.print(F("Address being prepped: "));
-    //Serial.println(_addr);
+    case JEDEC_PROG_BYTE:
     #ifndef HIGHSPEED
       if(_isChipPoweredDown() || !_addressCheck(_addr, size) || !_notPrevWritten(_addr, size) || !_notBusy() || !_writeEnable()) {
         return false;
@@ -126,92 +115,58 @@ bool SPIFlash::_prep(uint8_t opcode, uint32_t _addr, uint32_t size) {
 }
 
 // Transfer Address.
-bool SPIFlash::_transferAddress(void) {
+bool SPIFlash::_transferAddress() {
   if (address4ByteEnabled) {
-    _nextByte(WRITE, Highest(_currentAddress));
+    _nextByte(WRITE, ADDR_BITS_4(_currentAddress));
   }
-  _nextByte(WRITE, Higher(_currentAddress));
-  _nextByte(WRITE, Hi(_currentAddress));
-  _nextByte(WRITE, Lo(_currentAddress));
-  /*if (address4ByteEnabled) {
-    _nextByte(WRITE, _currentAddress >> 24);
-  }
-  _nextByte(WRITE, _currentAddress >> 16);
-  _nextByte(WRITE, _currentAddress >> 8);
-  _nextByte(WRITE, _currentAddress);*/
+  _nextByte(WRITE, ADDR_BITS_3(_currentAddress));
+  _nextByte(WRITE, ADDR_BITS_2(_currentAddress));
+  _nextByte(WRITE, ADDR_BITS_1(_currentAddress));
   return true;
 }
 
-bool SPIFlash::_startSPIBus(void) {
-  #ifndef SPI_HAS_TRANSACTION
-      noInterrupts();
-  #endif
-
-  #if defined (ARDUINO_ARCH_SAM)
-    _dueSPIInit(DUE_SPI_CLK);
-  #elif defined (ARDUINO_ARCH_SAMD)
-    #ifdef SPI_HAS_TRANSACTION
-      _spi->beginTransaction(_settings);
-    #else
-      _spi->setClockDivider(SPI_CLOCK_DIV_4);
-      _spi->setDataMode(SPI_MODE0);
-      _spi->setBitOrder(MSBFIRST);
-    #endif
-    #if defined ENABLEZERODMA
-      dma_init();
-    #endif
-  #else
-    #if defined (ARDUINO_ARCH_AVR)
-      //save current SPI settings
-      _SPCR = SPCR;
-      _SPSR = SPSR;
-    #endif
-    #ifdef SPI_HAS_TRANSACTION
-      SPI.beginTransaction(_settings);
-    #else
-      SPI.setClockDivider(SPI_CLOCK_DIV4);
-      SPI.setDataMode(SPI_MODE0);
-      SPI.setBitOrder(MSBFIRST);
-    #endif
-  #endif
+bool SPIFlash::_startSPIBus() {
+  SPI.beginTransaction(_settings);
   SPIBusState = true;
   return true;
 }
 
-//Initiates SPI operation - but data is not transferred yet. Always call _prep() before this function (especially when it involves writing or reading to/from an address)
+// Initiates SPI operation - but data is not transferred yet. Always call _prep() before this function (especially when it involves writing or reading to/from an address)
 bool SPIFlash::_beginSPI(uint8_t opcode) {
   if (!SPIBusState) {
     _startSPIBus();
   }
+
+  // SPI data lines are left open until _endSPI() is called
   CHIP_SELECT
   switch (opcode) {
-    case READDATA:
+    case JEDEC_READ_DATA:
     _nextByte(WRITE, opcode);
     _transferAddress();
     break;
 
-    case PAGEPROG:
+    case JEDEC_PROG_BYTE:
     _nextByte(WRITE, opcode);
     _transferAddress();
     break;
 
-    case FASTREAD:
+    case JEDEC_READ_FAST:
     _nextByte(WRITE, opcode);
     _nextByte(WRITE, DUMMYBYTE);
     _transferAddress();
     break;
 
-    case SECTORERASE:
+    case JEDEC_ERASE_SECTOR:
     _nextByte(WRITE, opcode);
     _transferAddress();
     break;
 
-    case BLOCK32ERASE:
+    case JEDEC_ERASE_BLOCK_32:
     _nextByte(WRITE, opcode);
     _transferAddress();
     break;
 
-    case BLOCK64ERASE:
+    case JEDEC_ERASE_BLOCK_64:
     _nextByte(WRITE, opcode);
     _transferAddress();
     break;
@@ -222,82 +177,40 @@ bool SPIFlash::_beginSPI(uint8_t opcode) {
   }
   return true;
 }
-//SPI data lines are left open until _endSPI() is called
+
 
 //Reads/Writes next byte. Call 'n' times to read/write 'n' number of bytes. Should be called after _beginSPI()
 uint8_t SPIFlash::_nextByte(char IOType, uint8_t data) {
-#if defined (ARDUINO_ARCH_SAMD)
-  #ifdef ENABLEZERODMA
-    union {
-      uint8_t dataBuf[1];
-      uint8_t val;
-    } rxData, txData;
-    txData.val = data;
-    spi_transfer(txData.dataBuf, rxData.dataBuf, 1);
-    return rxData.val;
-  #else
-    return xfer(data);
-  #endif
-#else
-  return xfer(data);
-#endif
+  return SPI.transfer(data);
 }
 
 //Reads/Writes next int. Call 'n' times to read/write 'n' number of integers. Should be called after _beginSPI()
 uint16_t SPIFlash::_nextInt(uint16_t data) {
-#if defined (ARDUINO_ARCH_SAMD)
-  return _spi->transfer16(data);
-#else
   return SPI.transfer16(data);
-#endif
 }
 
 //Reads/Writes next data buffer. Should be called after _beginSPI()
 void SPIFlash::_nextBuf(uint8_t opcode, uint8_t *data_buffer, uint32_t size) {
   uint8_t *_dataAddr = &(*data_buffer);
   switch (opcode) {
-    case READDATA:
-    #if defined (ARDUINO_ARCH_SAM)
-      _dueSPIRecByte(&(*data_buffer), size);
-    #elif defined (ARDUINO_ARCH_SAMD)
-      #ifdef ENABLEZERODMA
-        spi_read(&(*data_buffer), size);
-      #else
-        _spi->transfer(&data_buffer[0], size);
-      #endif
-    #elif defined (ARDUINO_ARCH_AVR)
-      SPI.transfer(&(*data_buffer), size);
-    #else
+    case JEDEC_READ_DATA:
       for (uint16_t i = 0; i < size; i++) {
-        *_dataAddr = xfer(NULLBYTE);
+        *_dataAddr = SPI.transfer(NULLBYTE);
         _dataAddr++;
       }
-    #endif
-    break;
+      break;
 
-    case PAGEPROG:
-    #if defined (ARDUINO_ARCH_SAM)
-      _dueSPISendByte(&(*data_buffer), size);
-    #elif defined (ARDUINO_ARCH_SAMD)
-      #ifdef ENABLEZERODMA
-        spi_write(&(*data_buffer), size);
-      #else
-        _spi->transfer(&data_buffer[0], size);
-      #endif
-    #elif defined (ARDUINO_ARCH_AVR)
-      SPI.transfer(&(*data_buffer), size);
-    #else
+    case JEDEC_PROG_BYTE:
       for (uint16_t i = 0; i < size; i++) {
-        xfer(*_dataAddr);
+        SPI.transfer(*_dataAddr);
         _dataAddr++;
       }
-    #endif
-    break;
+      break;
   }
 }
 
 //Stops all operations. Should be called after all the required data is read/written from repeated _nextByte() calls
-void SPIFlash::_endSPI(void) {
+void SPIFlash::_endSPI() {
   CHIP_DESELECT
 
   if (address4ByteEnabled) {          // If the previous operation enabled 4-byte addressing, disable it
@@ -305,53 +218,44 @@ void SPIFlash::_endSPI(void) {
   }
 
 #ifdef SPI_HAS_TRANSACTION
-  #if defined (ARDUINO_ARCH_SAMD)
-    _spi->endTransaction();
-  #else
-    SPI.endTransaction();
-  #endif
+  SPI.endTransaction();
 #else
   interrupts();
 #endif
-#if defined (ARDUINO_ARCH_AVR)
-  SPCR = _SPCR;
-  SPSR = _SPSR;
-#endif
+  
   SPIBusState = false;
 }
 
 // Checks if status register 1 can be accessed - used to check chip status, during powerdown and power up and for debugging
-uint8_t SPIFlash::_readStat1(void) {
-  _beginSPI(READSTAT1);
+uint8_t SPIFlash::_readStat1() {
+  _beginSPI(JEDEC_READ_STATREG);
   stat1 = _nextByte(READ);
   CHIP_DESELECT
   return stat1;
 }
 
 // Checks if status register 2 can be accessed, if yes, reads and returns it
-uint8_t SPIFlash::_readStat2(void) {
-  _beginSPI(READSTAT2);
+uint8_t SPIFlash::_readStat2() {
+  _beginSPI(WINBOND_READ_STATREG_2);
   stat2 = _nextByte(READ);
-  //stat2 = _nextByte(READ);
   CHIP_DESELECT
   return stat2;
 }
 
 // Checks if status register 3 can be accessed, if yes, reads and returns it
-uint8_t SPIFlash::_readStat3(void) {
-  _beginSPI(READSTAT3);
+uint8_t SPIFlash::_readStat3() {
+  _beginSPI(WINBOND_READ_STATREG_3);
   stat3 = _nextByte(READ);
-  //stat2 = _nextByte(READ);
   CHIP_DESELECT
   return stat3;
 }
 
 // Checks to see if 4-byte addressing is already enabled and if not, enables it
-bool SPIFlash::_enable4ByteAddressing(void) {
+bool SPIFlash::_enable4ByteAddressing() {
   if (_readStat3() & ADS) {
     return true;
   }
-  _beginSPI(ADDR4BYTE_EN);
+  _beginSPI(JEDEC_SET_4_BYTE_ADDR_ENABLE);
   CHIP_DESELECT
   if (_readStat3() & ADS) {
     address4ByteEnabled = true;
@@ -364,11 +268,11 @@ bool SPIFlash::_enable4ByteAddressing(void) {
 }
 
 // Checks to see if 4-byte addressing is already disabled and if not, disables it
-bool SPIFlash::_disable4ByteAddressing(void) {
+bool SPIFlash::_disable4ByteAddressing() {
   if (!(_readStat3() & ADS)) {      // If 4 byte addressing is disabled (default state)
     return true;
   }
-  _beginSPI(ADDR4BYTE_DIS);
+  _beginSPI(JEDEC_SET_4_BYTE_ADDR_DISABLE);
   CHIP_DESELECT
   if (_readStat3() & ADS) {
     _troubleshoot(UNABLETO3BYTE);
@@ -379,7 +283,7 @@ bool SPIFlash::_disable4ByteAddressing(void) {
 }
 
 // Checks the erase/program suspend flag before enabling/disabling a program/erase suspend operation
-bool SPIFlash::_noSuspend(void) {
+bool SPIFlash::_noSuspend() {
   switch (_chip.manufacturerID) {
     case WINBOND_MANID:
     if(_readStat2() & SUS) {
@@ -400,7 +304,7 @@ bool SPIFlash::_noSuspend(void) {
 }
 
 // Checks to see if chip is powered down. If it is, retrns true. If not, returns false.
-bool SPIFlash::_isChipPoweredDown(void) {
+bool SPIFlash::_isChipPoweredDown() {
   if (chipPoweredDown) {
     _troubleshoot(CHIPISPOWEREDDOWN);
     return true;
@@ -412,9 +316,8 @@ bool SPIFlash::_isChipPoweredDown(void) {
 
 // Polls the status register 1 until busy flag is cleared or timeout
 bool SPIFlash::_notBusy(uint32_t timeout) {
-  _delay_us(WINBOND_WRITE_DELAY);
+  _delay_us(SPI_WRITE_DELAY);
   uint32_t _time = micros();
-
   do {
     _readStat1();
     if (!(stat1 & BUSY))
@@ -429,9 +332,9 @@ bool SPIFlash::_notBusy(uint32_t timeout) {
   return true;
 }
 
-//Enables writing to chip by setting the WRITEENABLE bit
+//Enables writing to chip by setting the JEDEC_SET_WRITE_ENABLE bit
 bool SPIFlash::_writeEnable(bool _troubleshootEnable) {
-  _beginSPI(WRITEENABLE);
+  _beginSPI(JEDEC_SET_WRITE_ENABLE);
   CHIP_DESELECT
   if (!(_readStat1() & WRTEN)) {
     if (_troubleshootEnable) {
@@ -447,8 +350,8 @@ bool SPIFlash::_writeEnable(bool _troubleshootEnable) {
 // i.e. to write disable state:
 // Power-up, Write Disable, Page Program, Quad Page Program, Sector Erase, Block Erase, Chip Erase, Write Status Register,
 // Erase Security Register and Program Security register
-bool SPIFlash::_writeDisable(void) {
-	_beginSPI(WRITEDISABLE);
+bool SPIFlash::_writeDisable() {
+	_beginSPI(JEDEC_SET_WRITE_DISABLE);
   CHIP_DESELECT
 	return true;
 }
@@ -457,7 +360,7 @@ bool SPIFlash::_writeDisable(void) {
 bool SPIFlash::_getManId(uint8_t *b1, uint8_t *b2) {
 	if(!_notBusy())
 		return false;
-	_beginSPI(MANID);
+	_beginSPI(JEDEC_READ_MANSIG);
   _nextByte(READ);
   _nextByte(READ);
   _nextByte(READ);
@@ -468,11 +371,11 @@ bool SPIFlash::_getManId(uint8_t *b1, uint8_t *b2) {
 }
 
 //Checks for presence of chip by requesting JEDEC ID
-bool SPIFlash::_getJedecId(void) {
+bool SPIFlash::_getJedecId() {
   if(!_notBusy()) {
   	return false;
   }
-  _beginSPI(JEDECID);
+  _beginSPI(JEDEC_READ_JEDECID);
 	_chip.manufacturerID = _nextByte(READ);		// manufacturer id
 	_chip.memoryTypeID = _nextByte(READ);		// memory type
 	_chip.capacityID = _nextByte(READ);		// capacity
@@ -486,46 +389,35 @@ bool SPIFlash::_getJedecId(void) {
   }
 }
 
-bool SPIFlash::_getSFDP(void) {
+bool SPIFlash::_getSFDP() {
   if(!_notBusy()) {
   	return false;
   }
   _currentAddress = 0x00;
-  _beginSPI(READSFDP);
+  _beginSPI(JEDEC_READ_SFDP);
   _transferAddress();
   _nextByte(WRITE, DUMMYBYTE);
-  /*for (uint8_t i = 0; i < 4; i++) {
-    _chip.sfdp += (_nextByte(READ) << (8*i));
-  }*/
-  // Modification suggested by @VitorBoss on 13.08.2017.
-  // Ref issue 76 on Github here -->
-  // https://github.com/Marzogh/SPIFlash/issues/76
-  Lo(_chip.sfdp) = _nextByte(READ);
-  Hi(_chip.sfdp) = _nextByte(READ);
-  Higher(_chip.sfdp) = _nextByte(READ);
-  Highest(_chip.sfdp) = _nextByte(READ);
+
+  ADDR_BITS_1(_chip.sfdp) = _nextByte(READ);
+  ADDR_BITS_2(_chip.sfdp) = _nextByte(READ);
+  ADDR_BITS_3(_chip.sfdp) = _nextByte(READ);
+  ADDR_BITS_4(_chip.sfdp) = _nextByte(READ);
   CHIP_DESELECT
-  if (_chip.sfdp == 0x50444653) {
-    //Serial.print("_chip.sfdp: ");
-    //Serial.println(_chip.sfdp, HEX);
-    return true;
-  }
-  else {
-    return false;
-  }
+
+  return _chip.sfdp == VOYNICH_SFDP_SIGNATURE;
 }
 
-bool SPIFlash::_disableGlobalBlockProtect(void) {
-  if (_chip.memoryTypeID == SST25) {
+bool SPIFlash::_disableGlobalBlockProtect() {
+  if (_chip.memoryTypeID == MICROCHIP_SST25) {
     _readStat1();
     uint8_t _tempStat1 = stat1 & 0xC3;
-    _beginSPI(WRITESTATEN);
+    _beginSPI(JEDEC_SET_WRITE_STATREG_ENABLE);
     CHIP_DESELECT
-    _beginSPI(WRITESTAT1);
+    _beginSPI(JEDEC_PROG_STATREG);
     _nextByte(WRITE, _tempStat1);
     CHIP_DESELECT
   }
-  else if (_chip.memoryTypeID == SST26) {
+  else if (_chip.memoryTypeID == MICROCHIP_SST26) {
     if(!_notBusy()) {
     	return false;
     }
@@ -540,7 +432,7 @@ bool SPIFlash::_disableGlobalBlockProtect(void) {
 }
 
 //Identifies the chip
-bool SPIFlash::_chipID(void) {
+bool SPIFlash::_chipID() {
   //Get Manfucturer/Device ID so the library can identify the chip
   //_getSFDP();
   if (!_getJedecId()) {
@@ -562,21 +454,15 @@ bool SPIFlash::_chipID(void) {
         }
       }
       if (!_chip.capacity) {
-        _troubleshoot(UNKNOWNCAP);
+        _troubleshoot(VOYNICH_STATUS_UNKNOWNCAPACITY);
         return false;
       }
     }
     else {
-      _troubleshoot(UNKNOWNCHIP); //Error code for unidentified capacity
+      _troubleshoot(VOYNICH_STATUS_UNKNOWNCHIP); //Error code for unidentified capacity
       return false;
     }
   }
 
-  /*// If the flash memory is > 16 MB enable 4-byte addressing
-  if (_chip.manufacturerID == WINBOND_MANID && _chip.capacity > MB(16)) {
-    if (!_enable4ByteAddressing()) {    // If unable to enable 4-byte addressing
-      return false;
-    }
-  }*/
   return true;
 }

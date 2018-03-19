@@ -29,37 +29,11 @@
 
 // Constructor
 //If board has multiple SPI interfaces, this constructor lets the user choose between them
-// Adding Low level HAL API to initialize the Chip select pinMode on RTL8195A - @boseji <salearj@hotmail.com> 2nd March 2017
-#if defined (ARDUINO_ARCH_AVR)
-SPIFlash::SPIFlash(uint8_t cs) {
-  csPin = cs;
-  cs_mask = digitalPinToBitMask(csPin);
-  pinMode(csPin, OUTPUT);
-  CHIP_DESELECT
-}
-#elif defined (ARDUINO_ARCH_SAMD) || defined(ARCH_STM32)
-SPIFlash::SPIFlash(uint8_t cs, SPIClass *spiinterface) {
-  _spi = spiinterface;  //Sets SPI interface - if no user selection is made, this defaults to SPI
-  csPin = cs;
-  pinMode(csPin, OUTPUT);
-  CHIP_DESELECT
-}
-#elif defined (BOARD_RTL8195A)
-SPIFlash::SPIFlash(PinName cs) {
-  gpio_init(&csPin, cs);
-  gpio_dir(&csPin, PIN_OUTPUT);
-  gpio_mode(&csPin, PullNone);
-  gpio_write(&csPin, 1);
-  CHIP_DESELECT
-}
-#else
 SPIFlash::SPIFlash(uint8_t cs) {
   csPin = cs;
   pinMode(csPin, OUTPUT);
   CHIP_DESELECT
 }
-#endif
-
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
 //     Public functions used for read, write and erase operations     //
@@ -67,27 +41,6 @@ SPIFlash::SPIFlash(uint8_t cs) {
 
 //Identifies chip and establishes parameters
 bool SPIFlash::begin(uint32_t flashChipSize) {
-#ifdef PRINTNAMECHANGEALERT
-  if (!Serial) {
-    Serial.begin(115200);
-  }
-  for (uint8_t i = 0; i < 230; i++) {
-    Serial.print("-");
-  }
-  Serial.println();
-  Serial.println("\t\t\t\t\t\t\t\t\t\tImportant Notice");
-  for (uint8_t i = 0; i < 230; i++) {
-    Serial.print("-");
-  }
-  Serial.println();
-  Serial.println("\t\t\t\t\tThis version of the library - v3.1.0 will be the last version to ship under the name SPIFlash.");
-  Serial.println("\t\t\t\tStarting early May - when v3.2.0 is due - this library will be renamed 'SPIMemory' on the Arduino library manager.");
-  Serial.println("\t\t\t\t\t\t\tPlease refer to the Readme file for further details.");
-  for (uint8_t i = 0; i < 230; i++) {
-    Serial.print("-");
-  }
-  Serial.println();
-#endif
 #ifdef RUNDIAGNOSTIC
   Serial.println("Chip Diagnostics initiated.");
   Serial.println();
@@ -96,7 +49,7 @@ bool SPIFlash::begin(uint32_t flashChipSize) {
   Serial.println("Highspeed mode initiated.");
   Serial.println();
 #endif
-  BEGIN_SPI
+  SPI.begin();
 #ifdef SPI_HAS_TRANSACTION
   //Define the settings to be used by the SPI bus
   _settings = SPISettings(SPI_CLK, MSBFIRST, SPI_MODE0);
@@ -147,18 +100,18 @@ uint8_t SPIFlash::error(bool _verbosity) {
 }
 
 //Returns capacity of chip
-uint32_t SPIFlash::getCapacity(void) {
+uint32_t SPIFlash::getCapacity() {
 	return _chip.capacity;
 }
 
 //Returns maximum number of pages
-uint32_t SPIFlash::getMaxPage(void) {
+uint32_t SPIFlash::getMaxPage() {
 	return (_chip.capacity / SPI_PAGESIZE);
 }
 
 //Returns the time taken to run a function. Must be called immediately after a function is run as the variable returned is overwritten each time a function from this library is called. Primarily used in the diagnostics sketch included in the library to track function time.
 //This function can only be called if #define RUNDIAGNOSTIC is uncommented in SPIFlash.h
-float SPIFlash::functionRunTime(void) {
+float SPIFlash::functionRunTime() {
 #ifdef RUNDIAGNOSTIC
   return _spifuncruntime;
 #else
@@ -175,7 +128,7 @@ bool SPIFlash::libver(uint8_t *b1, uint8_t *b2, uint8_t *b3) {
 }
 
 //Checks for and initiates the chip by requesting the Manufacturer ID which is returned as a 16 bit int
-uint16_t SPIFlash::getManID(void) {
+uint16_t SPIFlash::getManID() {
 	uint8_t b1, b2;
     _getManId(&b1, &b2);
     uint32_t id = b1;
@@ -184,7 +137,7 @@ uint16_t SPIFlash::getManID(void) {
 }
 
 //Returns JEDEC ID which is returned as a 32 bit int
-uint32_t SPIFlash::getJEDECID(void) {
+uint32_t SPIFlash::getJEDECID() {
     uint32_t id = _chip.manufacturerID;
     id = (id << 8)|(_chip.memoryTypeID << 0);
     id = (id << 8)|(_chip.capacityID << 0);
@@ -192,11 +145,11 @@ uint32_t SPIFlash::getJEDECID(void) {
 }
 
 // Returns a 64-bit Unique ID that is unique to each flash memory chip
-uint64_t SPIFlash::getUniqueID(void) {
+uint64_t SPIFlash::getUniqueID() {
   if(!_notBusy() || _isChipPoweredDown()) {
     return false;
    }
-  _beginSPI(UNIQUEID);
+  _beginSPI(JEDEC_READ_UNIQUE_ID);
   for (uint8_t i = 0; i < 4; i++) {
     _nextByte(WRITE, DUMMYBYTE);
   }
@@ -210,8 +163,8 @@ uint64_t SPIFlash::getUniqueID(void) {
    CHIP_DESELECT
 
    long long _uid = 0;
-   for (uint8_t i = 0; i < 8; i++) {
-     _uid += _uniqueID[i];
+   for (uint8_t i : _uniqueID) {
+     _uid += i;
      _uid = _uid << 8;
    }
    return _uid;
@@ -233,7 +186,7 @@ uint32_t SPIFlash::getAddress(uint16_t size) {
         return false;
       }
     #ifdef DISABLEOVERFLOW
-      _troubleshoot(OUTOFBOUNDS);
+      _troubleshoot(VOYNICH_STATUS_OUTOFBOUNDS);
       return false;					// At end of memory - (!pageOverflow)
     #else
       currentAddress = 0x00;// At end of memory - (pageOverflow)
@@ -298,16 +251,16 @@ bool  SPIFlash::readByteArray(uint32_t _addr, uint8_t *data_buffer, size_t buffe
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
-  if (!_prep(READDATA, _addr, bufferSize)) {
+  if (!_prep(JEDEC_READ_DATA, _addr, bufferSize)) {
     return false;
   }
   if(fastRead) {
-    _beginSPI(FASTREAD);
+    _beginSPI(JEDEC_READ_FAST);
   }
   else {
-    _beginSPI(READDATA);
+    _beginSPI(JEDEC_READ_DATA);
   }
-  _nextBuf(READDATA, &(*data_buffer), bufferSize);
+  _nextBuf(JEDEC_READ_DATA, &(*data_buffer), bufferSize);
   _endSPI();
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros() - _spifuncruntime;
@@ -325,16 +278,16 @@ bool  SPIFlash::readCharArray(uint32_t _addr, char *data_buffer, size_t bufferSi
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
-  if (!_prep(READDATA, _addr, bufferSize)) {
+  if (!_prep(JEDEC_READ_DATA, _addr, bufferSize)) {
     return false;
 	}
   if(fastRead) {
-    _beginSPI(FASTREAD);
+    _beginSPI(JEDEC_READ_FAST);
   }
   else {
-    _beginSPI(READDATA);
+    _beginSPI(JEDEC_READ_DATA);
   }
-  _nextBuf(READDATA, (uint8_t*) &(*data_buffer), bufferSize);
+  _nextBuf(JEDEC_READ_DATA, (uint8_t*) &(*data_buffer), bufferSize);
   _endSPI();
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros() - _spifuncruntime;
@@ -472,16 +425,16 @@ bool SPIFlash::writeByteArray(uint32_t _addr, uint8_t *data_buffer, size_t buffe
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
-  if (!_prep(PAGEPROG, _addr, bufferSize)) {
+  if (!_prep(JEDEC_PROG_BYTE, _addr, bufferSize)) {
     return false;
   }
   uint16_t maxBytes = SPI_PAGESIZE-(_addr % SPI_PAGESIZE);  // Force the first set of bytes to stay within the first page
 
   if (bufferSize <= maxBytes) {
     CHIP_SELECT
-    _nextByte(WRITE, PAGEPROG);
+    _nextByte(WRITE, JEDEC_PROG_BYTE);
     _transferAddress();
-    //_nextBuf(PAGEPROG, &data_buffer[0], bufferSize);
+    //_nextBuf(JEDEC_PROG_BYTE, &data_buffer[0], bufferSize);
     for (uint16_t i = 0; i < bufferSize; ++i) {
       _nextByte(WRITE, data_buffer[i]);
     }
@@ -496,7 +449,7 @@ bool SPIFlash::writeByteArray(uint32_t _addr, uint8_t *data_buffer, size_t buffe
       writeBufSz = (length<=maxBytes) ? length : maxBytes;
 
       CHIP_SELECT
-      _nextByte(WRITE, PAGEPROG);
+      _nextByte(WRITE, JEDEC_PROG_BYTE);
       _transferAddress();
       for (uint16_t i = 0; i < writeBufSz; ++i) {
         _nextByte(WRITE, data_buffer[data_offset + i]);
@@ -528,7 +481,7 @@ bool SPIFlash::writeByteArray(uint32_t _addr, uint8_t *data_buffer, size_t buffe
     }
     _currentAddress = _addr;
     CHIP_SELECT
-    _nextByte(WRITE, READDATA);
+    _nextByte(WRITE, JEDEC_READ_DATA);
     _transferAddress();
     for (uint16_t j = 0; j < bufferSize; j++) {
       if (_nextByte(READ) != data_buffer[j]) {
@@ -555,16 +508,16 @@ bool SPIFlash::writeCharArray(uint32_t _addr, char *data_buffer, size_t bufferSi
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
-  if (!_prep(PAGEPROG, _addr, bufferSize)) {
+  if (!_prep(JEDEC_PROG_BYTE, _addr, bufferSize)) {
     return false;
   }
   uint16_t maxBytes = SPI_PAGESIZE-(_addr % SPI_PAGESIZE);  // Force the first set of bytes to stay within the first page
 
   if (bufferSize <= maxBytes) {
     CHIP_SELECT
-    _nextByte(WRITE, PAGEPROG);
+    _nextByte(WRITE, JEDEC_PROG_BYTE);
     _transferAddress();
-    //_nextBuf(PAGEPROG, (uint8_t*) &data_buffer[0], bufferSize);
+    //_nextBuf(JEDEC_PROG_BYTE, (uint8_t*) &data_buffer[0], bufferSize);
     for (uint16_t i = 0; i < bufferSize; ++i) {
       _nextByte(WRITE, data_buffer[i]);
     }
@@ -579,7 +532,7 @@ bool SPIFlash::writeCharArray(uint32_t _addr, char *data_buffer, size_t bufferSi
       writeBufSz = (length<=maxBytes) ? length : maxBytes;
 
       CHIP_SELECT
-      _nextByte(WRITE, PAGEPROG);
+      _nextByte(WRITE, JEDEC_PROG_BYTE);
       _transferAddress();
       for (uint16_t i = 0; i < writeBufSz; ++i) {
         _nextByte(WRITE, data_buffer[data_offset + i]);
@@ -611,7 +564,7 @@ bool SPIFlash::writeCharArray(uint32_t _addr, char *data_buffer, size_t bufferSi
     }
     _currentAddress = _addr;
     CHIP_SELECT
-    _nextByte(WRITE, READDATA);
+    _nextByte(WRITE, JEDEC_READ_DATA);
     _transferAddress();
     for (uint16_t j = 0; j < bufferSize; j++) {
       if (_nextByte(READ) != data_buffer[j]) {
@@ -717,26 +670,22 @@ bool SPIFlash::eraseSection(uint32_t _addr, uint32_t _sz) {
   KB32Blocks = (noOf4KBEraseRuns % 16) / 8;
   KB4Blocks = (noOf4KBEraseRuns % 8);
   totalBlocks = KB64Blocks + KB32Blocks + KB4Blocks;
-  //Serial.print("noOf4KBEraseRuns: ");
-  //Serial.println(noOf4KBEraseRuns);
-  //Serial.print("totalBlocks: ");
-  //Serial.println(totalBlocks);
 
   uint16_t _eraseFuncOrder[totalBlocks];
 
   if (KB64Blocks) {
     for (uint32_t i = 0; i < KB64Blocks; i++) {
-      _eraseFuncOrder[i] = BLOCK64ERASE;
+      _eraseFuncOrder[i] = JEDEC_ERASE_BLOCK_64;
     }
   }
   if (KB32Blocks) {
     for (uint32_t i = KB64Blocks; i < (KB64Blocks + KB32Blocks); i++) {
-      _eraseFuncOrder[i] = BLOCK32ERASE;
+      _eraseFuncOrder[i] = JEDEC_ERASE_BLOCK_32;
     }
   }
   if (KB4Blocks) {
     for (uint32_t i = (KB64Blocks + KB32Blocks); i < totalBlocks; i++) {
-      _eraseFuncOrder[i] = SECTORERASE;
+      _eraseFuncOrder[i] = JEDEC_ERASE_SECTOR;
     }
   }
 
@@ -745,8 +694,6 @@ bool SPIFlash::eraseSection(uint32_t _addr, uint32_t _sz) {
     noOfEraseRunsB4Boundary = (_sz - _addressOverflow)/16;
     noOfEraseRunsB4Boundary += ((_sz - _addressOverflow) % 16) / 8;
     noOfEraseRunsB4Boundary += ((_sz - _addressOverflow) % 8);
-    //Serial.print("noOfEraseRunsB4Boundary: ");
-    //Serial.println(noOfEraseRunsB4Boundary);
   }
   if (!_addressOverflow) {
     for (uint32_t j = 0; j < totalBlocks; j++) {
@@ -759,15 +706,15 @@ bool SPIFlash::eraseSection(uint32_t _addr, uint32_t _sz) {
 
       uint16_t _timeFactor = 0;
       switch (_eraseFuncOrder[j]) {
-        case BLOCK64ERASE:
+        case JEDEC_ERASE_BLOCK_64:
         _timeFactor = 1200;
         break;
 
-        case BLOCK32ERASE:
+        case JEDEC_ERASE_BLOCK_32:
         _timeFactor = 1000;
         break;
 
-        case SECTORERASE:
+        case JEDEC_ERASE_SECTOR:
         _timeFactor = 500;
         break;
 
@@ -800,7 +747,7 @@ bool SPIFlash::eraseSector(uint32_t _addr) {
   if (!_prep(ERASEFUNC, _addr, KB(4))) {
     return false;
   }
-  _beginSPI(SECTORERASE);   //The address is transferred as a part of this function
+  _beginSPI(JEDEC_ERASE_SECTOR);   //The address is transferred as a part of this function
   _endSPI();
 
   if(!_notBusy(500 * 1000L)) {
@@ -823,7 +770,7 @@ bool SPIFlash::eraseBlock32K(uint32_t _addr) {
   if (!_prep(ERASEFUNC, _addr, KB(32))) {
     return false;
   }
-  _beginSPI(BLOCK32ERASE);
+  _beginSPI(JEDEC_ERASE_BLOCK_32);
   _endSPI();
 
   if(!_notBusy(1000 * 1000L)) {
@@ -847,7 +794,7 @@ bool SPIFlash::eraseBlock64K(uint32_t _addr) {
     return false;
   }
 
-  _beginSPI(BLOCK64ERASE);
+  _beginSPI(JEDEC_ERASE_BLOCK_64);
   _endSPI();
 
   if(!_notBusy(1200 * 1000L)) {
@@ -860,7 +807,7 @@ bool SPIFlash::eraseBlock64K(uint32_t _addr) {
 }
 
 //Erases whole chip. Think twice before using.
-bool SPIFlash::eraseChip(void) {
+bool SPIFlash::eraseChip() {
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
@@ -868,7 +815,7 @@ bool SPIFlash::eraseChip(void) {
     return false;
   }
 
-	_beginSPI(CHIPERASE);
+	_beginSPI(JEDEC_ERASE_CHIP);
   _endSPI();
 
 	while(_readStat1() & BUSY) {
@@ -887,7 +834,7 @@ bool SPIFlash::eraseChip(void) {
 //Page Program, Write Status Register, Erase instructions are not allowed.
 //Erase suspend is only allowed during Block/Sector erase.
 //Program suspend is only allowed during Page/Quad Page Program
-bool SPIFlash::suspendProg(void) {
+bool SPIFlash::suspendProg() {
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
@@ -902,7 +849,7 @@ bool SPIFlash::suspendProg(void) {
     return true;
   }
 
-  _beginSPI(SUSPEND);
+  _beginSPI(JEDEC_SET_SUSPEND);
   _endSPI();
   _delay_us(20);
   if(!_notBusy(50) || _noSuspend()) {
@@ -915,7 +862,7 @@ bool SPIFlash::suspendProg(void) {
 }
 
 //Resumes previously suspended Block Erase/Sector Erase/Page Program.
-bool SPIFlash::resumeProg(void) {
+bool SPIFlash::resumeProg() {
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
@@ -923,7 +870,7 @@ bool SPIFlash::resumeProg(void) {
     return false;
   }
 
-	_beginSPI(RESUME);
+	_beginSPI(JEDEC_SET_RESUME);
 	_endSPI();
 
 	_delay_us(20);
@@ -940,7 +887,7 @@ bool SPIFlash::resumeProg(void) {
 
 //Puts device in low power state. Good for battery powered operations.
 //In powerDown() the chip will only respond to powerUp()
-bool SPIFlash::powerDown(void) {
+bool SPIFlash::powerDown() {
   if (_chip.manufacturerID != MICROCHIP_MANID) {
     #ifdef RUNDIAGNOSTIC
       _spifuncruntime = micros();
@@ -948,7 +895,7 @@ bool SPIFlash::powerDown(void) {
   	if(!_notBusy(20))
   		return false;
 
-  	_beginSPI(POWERDOWN);
+  	_beginSPI(JEDEC_SET_POWERDOWN);
     _endSPI();
 
     _delay_us(5);
@@ -970,11 +917,11 @@ bool SPIFlash::powerDown(void) {
 }
 
 //Wakes chip from low power state.
-bool SPIFlash::powerUp(void) {
+bool SPIFlash::powerUp() {
   #ifdef RUNDIAGNOSTIC
     _spifuncruntime = micros();
   #endif
-	_beginSPI(RELEASE);
+	_beginSPI(JEDEC_SET_RELEASE);
   _endSPI();
 	_delay_us(3);						    //Max release enable time according to the Datasheet
 
